@@ -3,6 +3,10 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 
 	nats "github.com/nats-io/nats.go"
 )
@@ -27,6 +31,8 @@ func getOptions() []nats.Option {
 }
 
 func main() {
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 	opts := getOptions()
 
 	nc, err := nats.Connect("0.0.0.0:4444", opts...)
@@ -37,9 +43,19 @@ func main() {
 
 	fmt.Printf("Connected to %s\n", nc.ConnectedUrl())
 
-	defer nc.Close()
-
 	nc.Subscribe("status", statusHander)
-	for {
-	}
+
+	go waitForInterrupt(&wg, nc)
+
+	wg.Wait()
+}
+
+func waitForInterrupt(wg *sync.WaitGroup, nc *nats.Conn) {
+	defer wg.Done()
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, syscall.SIGINT)
+
+	sig := <-ch
+	log.Printf("Caught signal: %s - draining\n", sig)
+	nc.Drain()
 }
